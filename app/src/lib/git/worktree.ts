@@ -25,7 +25,12 @@ export function parseWorktreePorcelainOutput(
 
     for (const line of lines) {
       if (line.startsWith('worktree ')) {
-        path = line.substring('worktree '.length)
+        // Git for Windows will output paths using forward slashes, i.e.
+        // c:/Users/niik/... but repositories added in Desktop always pass
+        // through getRepositoryType which uses path.resolve to deduce the
+        // absolute top level directory and that will normalize paths as well
+        // so by normalizing here we can be more confident about comparing paths
+        path = Path.normalize(line.substring('worktree '.length))
       } else if (line.startsWith('HEAD ')) {
         head = line.substring('HEAD '.length)
       } else if (line.startsWith('branch ')) {
@@ -121,9 +126,7 @@ export async function isLinkedWorktree(
   const worktrees = await listWorktrees(repository)
   const repoPath = repository.path
 
-  return worktrees.some(
-    wt => wt.type === 'linked' && wt.path === repoPath
-  )
+  return worktrees.some(wt => wt.type === 'linked' && wt.path === repoPath)
 }
 
 export async function getMainWorktreePath(
