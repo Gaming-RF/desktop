@@ -121,20 +121,3 @@ export async function moveWorktree(
   )
 }
 
-export async function isLinkedWorktree(
-  repository: Repository
-): Promise<boolean> {
-  const worktrees = await listWorktrees(repository)
-  const repoPath = repository.path
-
-  return worktrees.some(wt => wt.type === 'linked' && wt.path === repoPath)
-}
-
-export async function getMainWorktreePath(
-  repository: Repository
-): Promise<string | null> {
-  const worktrees = await listWorktrees(repository)
-  const main = worktrees.find(wt => wt.type === 'main')
-  return main?.path ?? null
-}
-

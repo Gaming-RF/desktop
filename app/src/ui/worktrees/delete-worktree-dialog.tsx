@@ -6,7 +6,7 @@ import { Dispatcher } from '../dispatcher'
 import { Dialog, DialogContent, DialogFooter } from '../dialog'
 import { Ref } from '../lib/ref'
 import { OkCancelButtonGroup } from '../dialog/ok-cancel-button-group'
-import { removeWorktree, getMainWorktreePath } from '../../lib/git/worktree'
+import { removeWorktree, listWorktrees } from '../../lib/git/worktree'
 
 interface IDeleteWorktreeDialogProps {
   readonly repository: Repository
@@ -70,8 +70,9 @@ export class DeleteWorktreeDialog extends React.Component<
         // When deleting the currently selected worktree, we must switch away
         // first. Otherwise git runs from the directory being deleted and the
         // app is left pointing at a non-existent path.
-        const mainPath = await getMainWorktreePath(repository)
-        if (mainPath === null) {
+        const worktrees = await listWorktrees(repository)
+        const mainPath = worktrees.find(wt => wt.type === 'main')?.path
+        if (mainPath === undefined) {
           throw new Error('Could not find main worktree')
         }
 
