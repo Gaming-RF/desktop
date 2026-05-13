@@ -5739,6 +5739,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
     } else {
       await removeWorktree(repository.path, worktreePath)
     }
+
+    await this._refreshWorktrees(repository)
   }
 
   public _setWorktreeDropdownWidth(width: number): Promise<void> {
