@@ -51,13 +51,11 @@ export class BranchAutocompletionProvider
   }
 
   public renderItem(item: IBranchHit): JSX.Element {
-    if (item.highlight.length > 0) {
-      return <HighlightText text={item.name} highlight={item.highlight} />
-    }
-
     return (
       <div className="branch">
-        <div className="title">{item.name}</div>
+        <div className="title">
+          <HighlightText text={item.name} highlight={item.highlight} />
+        </div>
       </div>
     )
   }

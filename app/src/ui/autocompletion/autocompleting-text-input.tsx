@@ -102,6 +102,12 @@ interface IAutocompletingTextInputProps<ElementType, AutocompleteItemType> {
 
   /** The aria-describedby attribute for the input element. */
   readonly ariaDescribedBy?: string
+
+  /**
+   * An optional suffix to be appended to the autocompletion text when an item is completed,
+   * defaults to ' '
+   */
+  readonly completionSuffix?: string
 }
 
 interface IAutocompletionState<T> {
@@ -596,7 +602,9 @@ export abstract class AutocompletingTextInput<
       autocompletionState.provider.getCompletionText(item)
 
     const textWithAutoCompleteText =
-      originalText.substr(0, range.start - 1) + autoCompleteText + ' '
+      originalText.substr(0, range.start - 1) +
+      autoCompleteText +
+      (this.props.completionSuffix ?? ' ')
 
     const newText =
       textWithAutoCompleteText +
