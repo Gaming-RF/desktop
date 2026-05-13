@@ -322,7 +322,6 @@ export class BranchDropdown extends React.Component<IBranchDropdownProps> {
         ? this.onViewPullRequestOnGithub
         : undefined,
       onDeleteBranch: this.onDeleteBranch,
-      onCheckoutInNewWorktree: this.onCheckoutInNewWorktree,
     })
 
     showContextualMenu(items)
