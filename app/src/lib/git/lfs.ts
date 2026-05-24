@@ -43,8 +43,18 @@ export async function isUsingLFS(repository: Repository): Promise<boolean> {
       env,
     }
   )
-  const output: ILFSTrackOutput = JSON.parse(result.stdout)
-  return output.patterns.some(pattern => pattern.tracked)
+
+  try {
+    const output = JSON.parse(result.stdout) as Partial<ILFSTrackOutput>
+
+    if (!Array.isArray(output.patterns)) {
+      return false
+    }
+
+    return output.patterns.some(pattern => pattern.tracked)
+  } catch {
+    return false
+  }
 }
 
 /**
