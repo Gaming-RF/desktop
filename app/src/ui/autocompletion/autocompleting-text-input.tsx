@@ -97,6 +97,9 @@ interface IAutocompletingTextInputProps<ElementType, AutocompleteItemType> {
   /** Called when the input field receives focus. */
   readonly onFocus?: (event: React.FocusEvent<ElementType>) => void
 
+  /** Called when the input field loses focus. */
+  readonly onBlur?: (value: string) => void
+
   /** The aria-labelledby attribute for the input element. */
   readonly ariaLabelledBy?: string
 
@@ -524,6 +527,10 @@ export abstract class AutocompletingTextInput<
 
   private onBlur = (e: React.FocusEvent<ElementType>) => {
     this.close()
+
+    if (this.props.onBlur !== undefined && this.element !== null) {
+      this.props.onBlur(this.element.value)
+    }
   }
 
   private onFocus = (e: React.FocusEvent<ElementType>) => {

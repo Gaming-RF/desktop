@@ -136,6 +136,7 @@ export class RefNameTextBox extends React.Component<
           autocompletionProviders={[this.props.autocompletionProvider]}
           alwaysAutocomplete={this.state.proposedValue.length === 0}
           onValueChanged={this.onValueChange}
+          onBlur={this.onBlur}
           completionSuffix=""
           anchorToCaret={false}
           anchorOffset={4}
