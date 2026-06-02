@@ -152,13 +152,13 @@ export class CopilotPreferences extends React.Component<
           __DARWIN__
             ? 'Commit Message Generation'
             : 'Commit message generation',
-          this.onCommitMessageModelChanged,
-          <p className="settings-description">
-            <LinkButton uri="https://docs.github.com/en/desktop/making-changes-in-a-branch/committing-and-reviewing-changes-to-your-project-in-github-desktop#write-a-commit-message-and-push-your-changes">
-              Learn more about generating commit messages.
-            </LinkButton>
-          </p>
+          this.onCommitMessageModelChanged
         )}
+        <p className="settings-description">
+          <LinkButton uri="https://docs.github.com/en/desktop/making-changes-in-a-branch/committing-and-reviewing-changes-to-your-project-in-github-desktop#write-a-commit-message-and-push-your-changes">
+            Learn more about generating commit messages.
+          </LinkButton>
+        </p>
         {enableCopilotConflictResolution() &&
           this.renderFeatureModelPicker(
             copilotModels,
@@ -174,8 +174,7 @@ export class CopilotPreferences extends React.Component<
     copilotModels: ReadonlyArray<ModelInfo>,
     feature: CopilotFeature,
     label: string,
-    onChange: (event: React.FormEvent<HTMLSelectElement>) => void,
-    description?: JSX.Element
+    onChange: (event: React.FormEvent<HTMLSelectElement>) => void
   ): JSX.Element {
     const { byokProviders, selectedCopilotModels } = this.props
 
@@ -187,41 +186,36 @@ export class CopilotPreferences extends React.Component<
     )
 
     return (
-      <>
-        <Select label={label} value={value} onChange={onChange}>
-          {copilotModels.length > 0 && (
-            <optgroup label="GitHub Copilot">
-              {copilotModels.map(m => (
-                <option
-                  key={m.id}
-                  value={encodeModelKey({ kind: 'copilot', modelId: m.id })}
-                >
-                  {m.id === DefaultCopilotModel
-                    ? `${m.name} (default)`
-                    : m.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {byokProviders.map(p => (
-            <optgroup key={p.id} label={p.name}>
-              {p.models.map(m => (
-                <option
-                  key={m.id}
-                  value={encodeModelKey({
-                    kind: 'byok',
-                    providerId: p.id,
-                    modelId: m.id,
-                  })}
-                >
-                  {m.name}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </Select>
-        {description}
-      </>
+      <Select label={label} value={value} onChange={onChange}>
+        {copilotModels.length > 0 && (
+          <optgroup label="GitHub Copilot">
+            {copilotModels.map(m => (
+              <option
+                key={m.id}
+                value={encodeModelKey({ kind: 'copilot', modelId: m.id })}
+              >
+                {m.id === DefaultCopilotModel ? `${m.name} (default)` : m.name}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        {byokProviders.map(p => (
+          <optgroup key={p.id} label={p.name}>
+            {p.models.map(m => (
+              <option
+                key={m.id}
+                value={encodeModelKey({
+                  kind: 'byok',
+                  providerId: p.id,
+                  modelId: m.id,
+                })}
+              >
+                {m.name}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </Select>
     )
   }
 

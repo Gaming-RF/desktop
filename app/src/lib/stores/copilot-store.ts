@@ -325,16 +325,9 @@ export type ReasoningEffort = typeof ReasoningEffortOrder[number]
 
 /** Formats a reasoning effort for display, e.g. 'xhigh' → 'Extra high'. */
 export function formatReasoningEffort(effort: ReasoningEffort): string {
-  switch (effort) {
-    case 'low':
-      return 'Low'
-    case 'medium':
-      return 'Medium'
-    case 'high':
-      return 'High'
-    case 'xhigh':
-      return 'Extra high'
-  }
+  return effort === 'xhigh'
+    ? 'Extra high'
+    : effort.charAt(0).toUpperCase() + effort.slice(1)
 }
 
 /**
@@ -344,9 +337,7 @@ export function formatReasoningEffort(effort: ReasoningEffort): string {
 export function getLowestReasoningEffort(
   model: ModelInfo
 ): ReasoningEffort | undefined {
-  const supported = model.supportedReasoningEfforts as
-    | ReadonlyArray<ReasoningEffort>
-    | undefined
+  const supported = model.supportedReasoningEfforts
   if (!supported || supported.length === 0) {
     return undefined
   }
@@ -363,10 +354,7 @@ export function getSupportedReasoningEffort(
   model: ModelInfo,
   preferred: ReasoningEffort
 ): ReasoningEffort | undefined {
-  const supported = model.supportedReasoningEfforts as
-    | ReadonlyArray<ReasoningEffort>
-    | undefined
-  return supported?.includes(preferred)
+  return model.supportedReasoningEfforts?.includes(preferred)
     ? preferred
     : getLowestReasoningEffort(model)
 }

@@ -378,11 +378,16 @@ export class CopilotConflictsLoadingDialog extends React.Component<
 
   public render() {
     const { displayedMessages, theme } = this.state
-    const { operationKind } = this.props
+    const { operationKind, model } = this.props
     const latestMessage =
       displayedMessages.length > 0
         ? displayedMessages[displayedMessages.length - 1]
         : null
+
+    const modelLabel =
+      model.reasoningEffort !== undefined
+        ? `${model.modelName} · ${formatReasoningEffort(model.reasoningEffort)}`
+        : model.modelName
 
     return (
       <Dialog
@@ -396,13 +401,7 @@ export class CopilotConflictsLoadingDialog extends React.Component<
           showCloseButton={true}
           onCloseButtonClick={this.props.onDismissed}
         >
-          <span className="copilot-conflicts-loading-model">
-            {this.props.model.reasoningEffort !== undefined
-              ? `${this.props.model.modelName} · ${formatReasoningEffort(
-                  this.props.model.reasoningEffort
-                )}`
-              : this.props.model.modelName}
-          </span>
+          <span className="copilot-conflicts-loading-model">{modelLabel}</span>
         </DialogHeader>
         <DialogContent>
           <div className="copilot-conflicts-loading-content">

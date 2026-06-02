@@ -58,7 +58,6 @@ export interface IMultiCommitOperationProps {
    * The model name and reasoning effort to display while Copilot resolves
    * conflicts, reflecting the user's `conflict-resolution` model selection.
    */
-  // eslint-disable-next-line react/no-unused-prop-types
   readonly copilotConflictResolutionModel: IConflictResolutionModelDisplay
 
   /**

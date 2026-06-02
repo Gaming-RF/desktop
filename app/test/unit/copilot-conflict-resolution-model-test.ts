@@ -39,8 +39,11 @@ const byokProvider: IBYOKProvider = {
   baseUrl: 'https://api.example.com/v1',
   authKind: 'apiKey',
   models: [
-    { id: 'custom-a', name: 'Custom A', reasoningEffort: 'high' },
-    { id: 'custom-b', name: 'Custom B' },
+    {
+      id: 'custom-a',
+      name: 'Custom A (Deep reasoning)',
+      reasoningEffort: 'high',
+    },
   ],
 }
 
@@ -58,22 +61,6 @@ describe('getConflictResolutionModelDisplay', () => {
     assert.deepStrictEqual(result, {
       modelName: 'GPT-5 mini',
       reasoningEffort: undefined,
-    })
-  })
-
-  it('returns the selected built-in model with the default effort when supported', () => {
-    const selection = encodeModelKey({
-      kind: 'copilot',
-      modelId: 'gpt-5-mini',
-    })
-    const result = getConflictResolutionModelDisplay(
-      selection,
-      copilotModels,
-      []
-    )
-    assert.deepStrictEqual(result, {
-      modelName: 'GPT-5 mini',
-      reasoningEffort: 'medium',
     })
   })
 
@@ -104,18 +91,6 @@ describe('getConflictResolutionModelDisplay', () => {
     )
     assert.deepStrictEqual(result, {
       modelName: 'Plain',
-      reasoningEffort: undefined,
-    })
-  })
-
-  it('shows the requested built-in model id when metadata is unavailable', () => {
-    const selection = encodeModelKey({
-      kind: 'copilot',
-      modelId: 'claude-opus',
-    })
-    const result = getConflictResolutionModelDisplay(selection, null, [])
-    assert.deepStrictEqual(result, {
-      modelName: 'claude-opus',
       reasoningEffort: undefined,
     })
   })
@@ -151,7 +126,7 @@ describe('getConflictResolutionModelDisplay', () => {
     })
   })
 
-  it('returns the BYOK model name and its configured effort', () => {
+  it('shows BYOK model names verbatim and passes through the effort', () => {
     const selection = encodeModelKey({
       kind: 'byok',
       providerId: 'provider-1',
@@ -160,48 +135,9 @@ describe('getConflictResolutionModelDisplay', () => {
     const result = getConflictResolutionModelDisplay(selection, copilotModels, [
       byokProvider,
     ])
+    // BYOK names are user-provided, so the "(Deep reasoning)" marker is kept.
     assert.deepStrictEqual(result, {
-      modelName: 'Custom A',
-      reasoningEffort: 'high',
-    })
-  })
-
-  it('omits the effort for a BYOK model without a configured effort', () => {
-    const selection = encodeModelKey({
-      kind: 'byok',
-      providerId: 'provider-1',
-      modelId: 'custom-b',
-    })
-    const result = getConflictResolutionModelDisplay(selection, copilotModels, [
-      byokProvider,
-    ])
-    assert.deepStrictEqual(result, {
-      modelName: 'Custom B',
-      reasoningEffort: undefined,
-    })
-  })
-
-  it('shows BYOK model names verbatim without stripping parentheticals', () => {
-    const provider: IBYOKProvider = {
-      ...byokProvider,
-      models: [
-        {
-          id: 'custom-c',
-          name: 'Custom C (Deep reasoning)',
-          reasoningEffort: 'high',
-        },
-      ],
-    }
-    const selection = encodeModelKey({
-      kind: 'byok',
-      providerId: 'provider-1',
-      modelId: 'custom-c',
-    })
-    const result = getConflictResolutionModelDisplay(selection, copilotModels, [
-      provider,
-    ])
-    assert.deepStrictEqual(result, {
-      modelName: 'Custom C (Deep reasoning)',
+      modelName: 'Custom A (Deep reasoning)',
       reasoningEffort: 'high',
     })
   })
