@@ -99,7 +99,6 @@ import {
   executeMenuItem,
   moveToApplicationsFolder,
   isWindowFocused,
-  showOpenDialog,
 } from '../main-process-proxy'
 import {
   CommitStatusStore,
@@ -136,6 +135,7 @@ import {
   ICopilotConflictResolutionResponse,
   IConflictResolutionProgress,
 } from '../../lib/copilot-conflict-resolution'
+import { WorktreeEntry } from '../../models/worktree'
 
 /**
  * An error handler function.
@@ -433,6 +433,16 @@ export class Dispatcher {
   /** Close the specified foldout */
   public closeFoldout(foldout: FoldoutType): Promise<void> {
     return this.appStore._closeFoldout(foldout)
+  }
+
+  /** Show the worktrees foldout */
+  public showWorktreesFoldout(): Promise<void> {
+    return this.showFoldout({ type: FoldoutType.Worktree })
+  }
+
+  /** Close the worktrees foldout */
+  public closeWorktreesFoldout(): Promise<void> {
+    return this.closeFoldout(FoldoutType.Worktree)
   }
 
   /**
@@ -991,6 +1001,43 @@ export class Dispatcher {
     return this.appStore._resetBranchDropdownWidth()
   }
 
+  public setWorktreeDropdownWidth(width: number): Promise<void> {
+    return this.appStore._setWorktreeDropdownWidth(width)
+  }
+
+  public resetWorktreeDropdownWidth(): Promise<void> {
+    return this.appStore._resetWorktreeDropdownWidth()
+  }
+
+  /**
+   * Switch the repository to a different worktree path.
+   *
+   * If the target path is already registered as a separate repository, that
+   * repository is selected instead.
+   */
+  public async switchWorktree(
+    repository: Repository,
+    worktree: WorktreeEntry
+  ): Promise<void> {
+    await this.appStore
+      ._switchWorktree(repository, worktree)
+      .catch(e => this.postError(e))
+  }
+
+  /**
+   * Delete a worktree. If the worktree being deleted is the currently selected
+   * one, the repository is switched to the main worktree first.
+   */
+  public async deleteWorktree(
+    repository: Repository,
+    worktreePath: string,
+    force?: boolean
+  ): Promise<void> {
+    await this.appStore
+      ._deleteWorktree(repository, worktreePath, force)
+      .catch(e => this.postError(e))
+  }
+
   /**
    * Set the width of the Push/Push toolbar button to the given value.
    * This affects the toolbar button and its dropdown element.
@@ -1130,6 +1177,22 @@ export class Dispatcher {
    */
   public startCopilotConflictResolution(repository: Repository): Promise<void> {
     return this.appStore._startCopilotConflictResolution(repository)
+  }
+
+  /**
+   * User-facing entry point invoked from the manual conflicts dialog's
+   * "Resolve with Copilot" button. Handles account-availability check,
+   * first-click tracking, and the AI-tool disclaimer popup before
+   * transitioning to the loading interstitial.
+   */
+  public attemptCopilotConflictResolution(
+    repository: Repository
+  ): Promise<void> {
+    return this.appStore._attemptCopilotConflictResolution(repository)
+  }
+
+  public updateCopilotConflictResolutionDisclaimerLastSeen() {
+    return this.appStore._updateCopilotConflictResolutionDisclaimerLastSeen()
   }
 
   /**
@@ -1724,14 +1787,8 @@ export class Dispatcher {
   /**
    * Update the location of an existing repository and clear the missing flag.
    */
-  public async relocateRepository(repository: Repository): Promise<void> {
-    const path = await showOpenDialog({
-      properties: ['openDirectory'],
-    })
-
-    if (path !== null) {
-      await this.updateRepositoryPath(repository, path)
-    }
+  public relocateRepository(repository: Repository): Promise<void> {
+    return this.appStore._relocateRepository(repository)
   }
 
   /**
@@ -1748,14 +1805,6 @@ export class Dispatcher {
       repository,
       workflowPreferences
     )
-  }
-
-  /** Update the repository's path. */
-  private async updateRepositoryPath(
-    repository: Repository,
-    path: string
-  ): Promise<void> {
-    await this.appStore._updateRepositoryPath(repository, path)
   }
 
   public async setAppFocusState(isFocused: boolean): Promise<void> {
@@ -2241,6 +2290,8 @@ export class Dispatcher {
           retryAction.files,
           false
         )
+      case RetryActionType.PopStash:
+        return this.popStash(retryAction.repository, retryAction.stashEntry)
       default:
         return assertNever(retryAction, `Unknown retry action: ${retryAction}`)
     }

@@ -114,6 +114,7 @@ import {
   sendWillQuitEvenIfUpdatingSync,
   quitApp,
   sendCancelQuittingSync,
+  showOpenDialog,
 } from '../../ui/main-process-proxy'
 import {
   API,
@@ -165,6 +166,7 @@ import { assertNever, fatalError, forceUnwrap } from '../fatal-error'
 import { formatCommitMessage } from '../format-commit-message'
 import {
   getAccountForCommitMessageGeneration,
+  getAccountForCopilotConflictResolution,
   getAccountForRepository,
 } from '../get-account-for-repository'
 import {
@@ -207,6 +209,8 @@ import {
   appendIgnoreFile,
   getRepositoryType,
   RepositoryType,
+  listWorktrees,
+  removeWorktree,
   getCommitRangeDiff,
   getCommitRangeChangedFiles,
   updateRemoteHEAD,
@@ -381,8 +385,8 @@ import {
   migratedCustomIntegration,
 } from '../custom-integration'
 import { updateStore } from '../../ui/lib/update-store'
+import { startTimer } from '../../ui/lib/timing'
 import { BypassReasonType } from '../../ui/secret-scanning/bypass-push-protection-dialog'
-import { getRepoHooks } from '../hooks/get-repo-hooks'
 import {
   ICopilotConflictResolutionResponse,
   IConflictResolutionProgress,
@@ -392,6 +396,7 @@ import {
   gatherCommitContext,
 } from '../copilot-conflict-context'
 import { resolveWithin } from '../path'
+import { WorktreeEntry } from '../../models/worktree'
 
 const LastSelectedRepositoryIDKey = 'last-selected-repository-id'
 
@@ -416,6 +421,9 @@ const pullRequestFileListConfigKey: string = 'pull-request-files-width'
 
 const defaultBranchDropdownWidth: number = 230
 const branchDropdownWidthConfigKey: string = 'branch-dropdown-width'
+
+const defaultWorktreeDropdownWidth: number = 230
+const worktreeDropdownWidthConfigKey: string = 'worktree-dropdown-width'
 
 const defaultPushPullButtonWidth: number = 230
 const pushPullButtonWidthConfigKey: string = 'push-pull-button-width'
@@ -504,6 +512,12 @@ const commitMessageGenerationDisclaimerLastSeenKey =
 const commitMessageGenerationButtonClickedKey =
   'commit-message-generation-button-clicked'
 
+const copilotConflictResolutionDisclaimerLastSeenKey =
+  'copilot-conflict-resolution-disclaimer-last-seen'
+
+const copilotConflictResolutionButtonClickedKey =
+  'copilot-conflict-resolution-button-clicked'
+
 export const showChangesFilterKey = 'show-changes-filter'
 
 const selectedCopilotModelsKey = 'selected-copilot-models'
@@ -563,6 +577,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private stashedFilesWidth = constrain(defaultStashedFilesWidth)
   private pullRequestFileListWidth = constrain(defaultPullRequestFileListWidth)
   private branchDropdownWidth = constrain(defaultBranchDropdownWidth)
+  private worktreeDropdownWidth = constrain(defaultWorktreeDropdownWidth)
   private pushPullButtonWidth = constrain(defaultPushPullButtonWidth)
 
   private windowState: WindowState | null = null
@@ -665,6 +680,9 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   private commitMessageGenerationDisclaimerLastSeen: number | null = null
   private commitMessageGenerationButtonClicked: boolean = false
+
+  private copilotConflictResolutionDisclaimerLastSeen: number | null = null
+  private copilotConflictResolutionButtonClicked: boolean = false
 
   private showChangesFilter: boolean = false
 
@@ -1115,6 +1133,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       emoji: this.emoji,
       sidebarWidth: this.sidebarWidth,
       branchDropdownWidth: this.branchDropdownWidth,
+      worktreeDropdownWidth: this.worktreeDropdownWidth,
       pushPullButtonWidth: this.pushPullButtonWidth,
       commitSummaryWidth: this.commitSummaryWidth,
       stashedFilesWidth: this.stashedFilesWidth,
@@ -1181,6 +1200,10 @@ export class AppStore extends TypedBaseStore<IAppState> {
         this.commitMessageGenerationDisclaimerLastSeen,
       commitMessageGenerationButtonClicked:
         this.commitMessageGenerationButtonClicked,
+      copilotConflictResolutionDisclaimerLastSeen:
+        this.copilotConflictResolutionDisclaimerLastSeen,
+      copilotConflictResolutionButtonClicked:
+        this.copilotConflictResolutionButtonClicked,
       showChangesFilter: this.showChangesFilter,
       selectedCopilotModels: this.selectedCopilotModels,
       copilotModels: this.copilotModels,
@@ -2274,6 +2297,9 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.branchDropdownWidth = constrain(
       getNumber(branchDropdownWidthConfigKey, defaultBranchDropdownWidth)
     )
+    this.worktreeDropdownWidth = constrain(
+      getNumber(worktreeDropdownWidthConfigKey, defaultWorktreeDropdownWidth)
+    )
     this.pushPullButtonWidth = constrain(
       getNumber(pushPullButtonWidthConfigKey, defaultPushPullButtonWidth)
     )
@@ -2443,6 +2469,14 @@ export class AppStore extends TypedBaseStore<IAppState> {
       false
     )
 
+    this.copilotConflictResolutionDisclaimerLastSeen =
+      getNumber(copilotConflictResolutionDisclaimerLastSeenKey) ?? null
+
+    this.copilotConflictResolutionButtonClicked = getBoolean(
+      copilotConflictResolutionButtonClickedKey,
+      false
+    )
+
     this.showChangesFilter = getBoolean(
       showChangesFilterKey,
       showChangesFilterDefault
@@ -2463,12 +2497,13 @@ export class AppStore extends TypedBaseStore<IAppState> {
    * dimensions change.
    */
   private updateResizableConstraints() {
-    // The combined width of the branch dropdown and the push/pull/fetch button
+    // The combined width of the toolbar buttons (worktree, branch, push/pull).
     // Since the repository list toolbar button width is tied to the width of
-    // the sidebar we can't let it push the branch, and push/pull/fetch button
-    // off screen.
+    // the sidebar we can't let it push these buttons off screen.
     const toolbarButtonsMinWidth =
-      defaultPushPullButtonWidth + defaultBranchDropdownWidth
+      defaultPushPullButtonWidth +
+      defaultBranchDropdownWidth +
+      defaultWorktreeDropdownWidth
 
     // Start with all the available width
     let available = window.innerWidth
@@ -2505,16 +2540,14 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.commitSummaryWidth = constrain(this.commitSummaryWidth, 100, filesMax)
     this.stashedFilesWidth = constrain(this.stashedFilesWidth, 100, filesMax)
 
-    // Update the maximum width available for the branch dropdown resizable.
-    // The branch dropdown can only be as wide as the available space after
-    // taking the sidebar and pull/push/fetch button widths. If the room
-    // available is less than the default width, we will split the difference
-    // between the branch dropdown and the push/pull/fetch button so they stay
-    // visible on the most zoomed view.
-    const branchDropdownMax = available - defaultPushPullButtonWidth
+    // Allocate branch first (highest priority), then worktree, then
+    // push-pull. Each subsequent allocation uses the clamped value of the
+    // previous to prevent the total from exceeding the available space.
+    const branchDropdownMax =
+      available - defaultWorktreeDropdownWidth - defaultPushPullButtonWidth
     const minimumBranchDropdownWidth =
-      defaultBranchDropdownWidth > available / 2
-        ? available / 2 - 10 // 10 is to give a little bit of space to see the fetch dropdown button
+      defaultBranchDropdownWidth > available / 3
+        ? available / 3 - 10
         : defaultBranchDropdownWidth
     this.branchDropdownWidth = constrain(
       this.branchDropdownWidth,
@@ -2522,10 +2555,21 @@ export class AppStore extends TypedBaseStore<IAppState> {
       branchDropdownMax
     )
 
-    const pushPullButtonMaxWidth = available - this.branchDropdownWidth.value
+    const worktreeDropdownMax =
+      available - clamp(this.branchDropdownWidth) - defaultPushPullButtonWidth
+    this.worktreeDropdownWidth = constrain(
+      this.worktreeDropdownWidth,
+      Math.min(available / 3 - 10, 170),
+      worktreeDropdownMax
+    )
+
+    const pushPullButtonMaxWidth =
+      available -
+      clamp(this.branchDropdownWidth) -
+      clamp(this.worktreeDropdownWidth)
     const minimumPushPullToolBarWidth =
-      defaultPushPullButtonWidth > available / 2
-        ? available / 2 + 30 // 30 to clip the fetch dropdown button in favor of seeing more of the words on the toolbar buttons
+      defaultPushPullButtonWidth > available / 3
+        ? available / 3
         : defaultPushPullButtonWidth
     this.pushPullButtonWidth = constrain(
       this.pushPullButtonWidth,
@@ -3675,13 +3719,20 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return repository
     }
 
+    const type = await getRepositoryType(repository.path)
+
     const foundRepository =
-      (await pathExists(repository.path)) &&
-      (await getRepositoryType(repository.path)).kind === 'regular' &&
-      (await this._loadStatus(repository)) !== null
+      type.kind === 'regular' && (await this._loadStatus(repository)) !== null
 
     if (foundRepository) {
-      return await this._updateRepositoryMissing(repository, false)
+      let recovered = await this._updateRepositoryMissing(repository, false)
+      if (type.kind === 'regular' && recovered.gitDir !== type.gitDir) {
+        recovered = await this.repositoriesStore.updateRepositoryGitDir(
+          recovered,
+          type.gitDir
+        )
+      }
+      return recovered
     }
     return repository
   }
@@ -3698,6 +3749,17 @@ export class AppStore extends TypedBaseStore<IAppState> {
     if (!exists) {
       this._updateRepositoryMissing(repository, true)
       return
+    }
+
+    // Populate gitDir for repositories that don't have it yet
+    if (repository.gitDir === undefined) {
+      const type = await getRepositoryType(repository.path)
+      if (type.kind === 'regular') {
+        repository = await this.repositoriesStore.updateRepositoryGitDir(
+          repository,
+          type.gitDir
+        )
+      }
     }
 
     const state = this.repositoryStateCache.get(repository)
@@ -3736,7 +3798,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       gitStore.updateLastFetched(),
       gitStore.loadStashEntries(),
       this._refreshAuthor(repository),
-      this._refreshHasCommitHooks(repository),
+      this._refreshWorktrees(repository),
       refreshSectionPromise,
     ])
 
@@ -3992,6 +4054,17 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.emitUpdate()
   }
 
+  private async _refreshWorktrees(repository: Repository): Promise<void> {
+    try {
+      const worktrees = await listWorktrees(repository)
+      this.repositoryStateCache.update(repository, () => ({ worktrees }))
+      this.statsStore.recordWorktreeCount(worktrees.length)
+      this.emitUpdate()
+    } catch (e) {
+      log.error('Failed to refresh worktrees', e)
+    }
+  }
+
   public _updateCommitOptions(
     repository: Repository,
     commitOptions: Partial<CommitOptions>
@@ -4003,17 +4076,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
       ...commitOptions,
     }))
     this.emitUpdate()
-  }
-
-  private async _refreshHasCommitHooks(repository: Repository): Promise<void> {
-    const hooks = ['pre-commit', 'commit-msg']
-    // Break early if we find either one of the hooks
-    for await (const {} of getRepoHooks(repository.path, hooks)) {
-      const hasCommitHooks = true
-      this.repositoryStateCache.update(repository, () => ({ hasCommitHooks }))
-      this.emitUpdate()
-      return
-    }
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */
@@ -4180,6 +4242,14 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return repository
     }
 
+    // If the branch is checked out in another worktree, switch to that worktree
+    // instead of checking out the branch in the current worktree.
+    const wt = repositoryState.worktrees.find(wt => wt.branch === branch.ref)
+
+    if (wt) {
+      return this._switchWorktree(repository, wt)
+    }
+
     let strategy = explicitStrategy ?? this.uncommittedChangesStrategy
 
     // The user hasn't been presented with an explicit choice
@@ -4215,7 +4285,9 @@ export class AppStore extends TypedBaseStore<IAppState> {
       // up-to-date information to the user.
       return this.checkoutImplementation(repository, branch, strategy)
         .then(() => this.onSuccessfulCheckout(repository, branch))
-        .catch(e => this.emitError(new CheckoutError(e, repository, branch)))
+        .catch(async e => {
+          this.emitError(new CheckoutError(e, repository, branch))
+        })
         .then(() => this.refreshAfterCheckout(repository, branch.name))
         .finally(() => this.updateCheckoutProgress(repository, null))
     })
@@ -5611,6 +5683,116 @@ export class AppStore extends TypedBaseStore<IAppState> {
     return Promise.resolve()
   }
 
+  /**
+   * Switch the repository to a different worktree. This shouldn't be called
+   * directly. See `Dispatcher`.
+   *
+   * If the target worktree path is already registered as a separate repository,
+   * that repository is selected instead of modifying the current one.
+   */
+  public async _switchWorktree(
+    repository: Repository,
+    worktree: WorktreeEntry
+  ): Promise<Repository> {
+    const { kind } = await getRepositoryType(worktree.path).catch(e => {
+      log.error('Could not determine repository type', e)
+      return { kind: 'missing' } as RepositoryType
+    })
+
+    if (kind !== 'regular' && kind !== 'unsafe') {
+      throw new Error(
+        `The worktree path '${worktree.path}' does not appear to be a valid Git repository.`
+      )
+    }
+
+    // If the repository path isn't trusted we'll mark the repository as
+    // missing. The missing repository view knows how to add a path to the
+    // allow list.
+    const missing = kind === 'unsafe'
+
+    const result = await this.repositoriesStore.switchWorktree(
+      repository,
+      worktree.path,
+      missing
+    )
+
+    this.repositoryStateCache.seedFromWorktree(
+      result.repository,
+      repository,
+      worktree
+    )
+
+    await this._selectRepository(result.repository)
+
+    this.statsStore.increment('worktreeSwitchCount')
+
+    return result.repository
+  }
+
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public async _deleteWorktree(
+    repository: Repository,
+    worktreePath: string,
+    force?: boolean
+  ): Promise<void> {
+    const isDeletingCurrentWorktree = repository.path === worktreePath
+    let path = repository.path
+
+    if (isDeletingCurrentWorktree) {
+      const worktrees = await listWorktrees(repository)
+      const main = worktrees.find(wt => wt.type === 'main')
+
+      if (main === undefined) {
+        throw new Error('Could not find main worktree')
+      }
+
+      await this._switchWorktree(repository, main)
+      // Run the delete worktree action with the main worktree path since the current
+      // worktree path will be deleted after the switch.
+      path = main.path
+    }
+
+    try {
+      await removeWorktree(path, worktreePath, force)
+    } catch (e) {
+      this._closePopup(PopupType.DeleteWorktree)
+      this._closePopup(PopupType.DeleteWorktreeFailed)
+      this._showPopup({
+        type: PopupType.DeleteWorktreeFailed,
+        repository,
+        worktreePath,
+        error: e,
+      })
+    }
+
+    await this._refreshWorktrees(repository)
+    this.statsStore.increment('worktreeDeletedCount')
+  }
+
+  public _setWorktreeDropdownWidth(width: number): Promise<void> {
+    this.worktreeDropdownWidth = {
+      ...this.worktreeDropdownWidth,
+      value: width,
+    }
+    setNumber(worktreeDropdownWidthConfigKey, width)
+    this.updateResizableConstraints()
+    this.emitUpdate()
+
+    return Promise.resolve()
+  }
+
+  public _resetWorktreeDropdownWidth(): Promise<void> {
+    this.worktreeDropdownWidth = {
+      ...this.worktreeDropdownWidth,
+      value: defaultWorktreeDropdownWidth,
+    }
+    localStorage.removeItem(worktreeDropdownWidthConfigKey)
+    this.updateResizableConstraints()
+    this.emitUpdate()
+
+    return Promise.resolve()
+  }
+
   public _setPushPullButtonWidth(width: number): Promise<void> {
     this.pushPullButtonWidth = { ...this.pushPullButtonWidth, value: width }
     setNumber(pushPullButtonWidthConfigKey, width)
@@ -5691,6 +5873,23 @@ export class AppStore extends TypedBaseStore<IAppState> {
     if (!this.commitMessageGenerationButtonClicked) {
       this.commitMessageGenerationButtonClicked = true
       setBoolean(commitMessageGenerationButtonClickedKey, true)
+      this.emitUpdate()
+    }
+  }
+
+  public _updateCopilotConflictResolutionDisclaimerLastSeen(): void {
+    this.copilotConflictResolutionDisclaimerLastSeen = Date.now()
+    setNumber(
+      copilotConflictResolutionDisclaimerLastSeenKey,
+      this.copilotConflictResolutionDisclaimerLastSeen
+    )
+    this.emitUpdate()
+  }
+
+  public _setCopilotConflictResolutionButtonClicked(): void {
+    if (!this.copilotConflictResolutionButtonClicked) {
+      this.copilotConflictResolutionButtonClicked = true
+      setBoolean(copilotConflictResolutionButtonClickedKey, true)
       this.emitUpdate()
     }
   }
@@ -5839,6 +6038,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return null
     }
 
+    const totalTimer = startTimer('resolve conflicts with Copilot', repository)
+
     try {
       const state = this.repositoryStateCache.get(repository)
       const { conflictState } = state.changesState
@@ -5850,11 +6051,13 @@ export class AppStore extends TypedBaseStore<IAppState> {
         return null
       }
 
+      const labelsTimer = startTimer('gather conflict labels', repository)
       const labels = await this.getConflictLabelsAndRefs(
         repository,
         conflictState,
         state.multiCommitOperationState
       )
+      labelsTimer.done()
 
       const conflictedFiles = getConflictedFiles(
         state.changesState.workingDirectory,
@@ -5868,14 +6071,21 @@ export class AppStore extends TypedBaseStore<IAppState> {
         return null
       }
 
+      log.info(
+        `[Timing] resolving ${conflictedFiles.length} conflicted file(s)`
+      )
+
+      const contextTimer = startTimer('build conflict context', repository)
       const context = await buildConflictContext(
         labels.ourLabel,
         labels.theirLabel,
         repository.path,
         conflictedFiles
       )
+      contextTimer.done()
 
       // Best-effort enrichment — never block resolution on these
+      const commitContextTimer = startTimer('gather commit context', repository)
       const commitContext =
         labels.ourRef && labels.theirRef
           ? await gatherCommitContext(
@@ -5884,9 +6094,14 @@ export class AppStore extends TypedBaseStore<IAppState> {
               labels.theirRef
             ).catch(() => null)
           : null
+      commitContextTimer.done()
 
       const currentPullRequest = state.branchesState.currentPullRequest ?? null
 
+      const resolveTimer = startTimer(
+        'copilotStore.resolveConflicts',
+        repository
+      )
       const result = await this.copilotStore.resolveConflicts(
         context,
         commitContext,
@@ -5894,12 +6109,86 @@ export class AppStore extends TypedBaseStore<IAppState> {
         repository.path,
         onProgress
       )
+      resolveTimer.done()
+
+      totalTimer.done()
 
       return result
     } catch (e) {
+      totalTimer.done()
       log.warn('AppStore: Copilot conflict resolution failed', e)
       return null
     }
+  }
+
+  /**
+   * Pre-flight entry point for Copilot conflict resolution invoked from
+   * the manual conflicts dialog's "Resolve with Copilot" button.
+   *
+   * Verifies a Copilot-enabled account exists, sets the first-click flag,
+   * and gates on the AI-tool disclaimer (shown on first use and again
+   * every 30 days). On clean pass, transitions the multi-commit-operation
+   * step to the loading interstitial and kicks off
+   * `_startCopilotConflictResolution`.
+   *
+   * This shouldn't be called directly. See `Dispatcher`.
+   */
+  public async _attemptCopilotConflictResolution(
+    repository: Repository
+  ): Promise<void> {
+    const state = this.repositoryStateCache.get(repository)
+    const { multiCommitOperationState } = state
+    if (multiCommitOperationState === null) {
+      return
+    }
+
+    const { step } = multiCommitOperationState
+    if (step.kind !== MultiCommitOperationStepKind.ShowConflicts) {
+      return
+    }
+
+    const account = getAccountForCopilotConflictResolution(
+      this.accounts,
+      repository
+    )
+
+    if (!account) {
+      return
+    }
+
+    // Track that the user has clicked the entry point so we can hide the
+    // "New" call-to-action bubble.
+    this._setCopilotConflictResolutionButtonClicked()
+
+    // First-use disclaimer + periodic re-confirmation. Mirrors the
+    // commit-message-generation pattern.
+    if (
+      !this.copilotConflictResolutionDisclaimerLastSeen ||
+      offsetFromNow(-30, 'days') >
+        this.copilotConflictResolutionDisclaimerLastSeen
+    ) {
+      await this._showPopup({
+        type: PopupType.CopilotConflictResolutionDisclaimer,
+        repository,
+      })
+      return
+    }
+
+    // Transition to the loading interstitial and start the resolution.
+    const { conflictState } = step
+    this.repositoryStateCache.updateMultiCommitOperationState(
+      repository,
+      () => ({
+        step: {
+          kind: MultiCommitOperationStepKind.ShowCopilotConflictsLoading,
+          conflictState,
+        },
+        useCopilotConflictResolution: true,
+      })
+    )
+    this.emitUpdate()
+
+    return this._startCopilotConflictResolution(repository)
   }
 
   /**
@@ -5941,6 +6230,11 @@ export class AppStore extends TypedBaseStore<IAppState> {
           ) {
             return
           }
+          if (__DEV__ && progress.reasoningSnippet !== undefined) {
+            log.info(
+              `[Copilot SDK] app-store progress snippet: ${progress.reasoningSnippet}`
+            )
+          }
           this.repositoryStateCache.updateMultiCommitOperationState(
             repository,
             () => ({ copilotResolutionProgress: progress })
@@ -5952,16 +6246,52 @@ export class AppStore extends TypedBaseStore<IAppState> {
       // Re-check state: user may have cancelled during the await
       const currentState = this.repositoryStateCache.get(repository)
       const currentMco = currentState.multiCommitOperationState
-      if (
-        currentMco === null ||
-        currentMco.step.kind !==
+      if (currentMco === null) {
+        return
+      }
+
+      // The user can navigate to ConfirmAbort while we're awaiting the
+      // resolution. If they came from the loading step, we still want
+      // the resolution to be available when they click "Return to
+      // conflicts" — store the result and rewrite the return target
+      // so they land on the result dialog rather than an empty
+      // ShowCopilotConflicts step.
+      const currentStep = currentMco.step
+      const isStillLoading =
+        currentStep.kind ===
+        MultiCommitOperationStepKind.ShowCopilotConflictsLoading
+      const isConfirmAbortFromLoading =
+        currentStep.kind === MultiCommitOperationStepKind.ConfirmAbort &&
+        currentStep.returnToStepKind ===
           MultiCommitOperationStepKind.ShowCopilotConflictsLoading
-      ) {
+
+      if (!isStillLoading && !isConfirmAbortFromLoading) {
         return
       }
 
       if (result === null) {
         throw new Error('Copilot conflict resolution returned no results')
+      }
+
+      if (isConfirmAbortFromLoading) {
+        // Stash the result and update the return target so the user
+        // lands on the result dialog if they cancel the abort.
+        this.repositoryStateCache.updateMultiCommitOperationState(
+          repository,
+          () => ({
+            step: {
+              kind: MultiCommitOperationStepKind.ConfirmAbort,
+              conflictState,
+              returnToStepKind:
+                MultiCommitOperationStepKind.ShowCopilotConflicts,
+            },
+            copilotResolutions: result.resolutions,
+            copilotResolutionProgress: null,
+          })
+        )
+
+        this.emitUpdate()
+        return
       }
 
       // Store resolutions and transition to the result dialog.
@@ -5982,6 +6312,11 @@ export class AppStore extends TypedBaseStore<IAppState> {
       this.emitUpdate()
     } catch (e) {
       log.warn('AppStore: Copilot conflict resolution flow failed', e)
+
+      // Surface the error to the user so they understand why they were
+      // routed back to manual conflict resolution. Mirrors the pattern
+      // used by `_generateCommitMessage`.
+      this.emitError(new ErrorWithMetadata(e, { repository }))
 
       // Transition back to manual conflict resolution
       this.repositoryStateCache.updateMultiCommitOperationState(
@@ -6799,13 +7134,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
     return result
   }
 
-  public _updateRepositoryPath(
-    repository: Repository,
-    path: string
-  ): Promise<Repository> {
-    return this.repositoriesStore.updateRepositoryPath(repository, path)
-  }
-
   public async _removeAccount(account: Account) {
     log.info(
       `[AppStore] removing account ${account.login} (${account.name}) from store`
@@ -6873,7 +7201,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
       await this.repositoriesStore.addTutorialRepository(
         validatedPath,
         endpoint,
-        apiRepository
+        apiRepository,
+        type.gitDir
       )
       this.tutorialAssessor.onNewTutorialRepository()
     } else {
@@ -6896,9 +7225,11 @@ export class AppStore extends TypedBaseStore<IAppState> {
       })
 
       if (repositoryType.kind === 'unsafe') {
-        const repository = await this.repositoriesStore.addRepository(path, {
-          missing: true,
-        })
+        const repository = await this.repositoriesStore.addRepository(
+          path,
+          undefined,
+          { missing: true }
+        )
 
         addedRepositories.push(repository)
         continue
@@ -6919,7 +7250,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
         }
 
         const addedRepo = await this.repositoriesStore.addRepository(
-          validatedPath
+          validatedPath,
+          repositoryType.gitDir
         )
 
         // initialize the remotes for this new repository to ensure it can fetch
@@ -6953,6 +7285,33 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     return addedRepositories
+  }
+
+  public async _relocateRepository(repository: Repository): Promise<void> {
+    const path = await showOpenDialog({ properties: ['openDirectory'] })
+
+    if (path === null) {
+      return
+    }
+
+    const rt = await getRepositoryType(path)
+
+    if (rt.kind === 'regular') {
+      await this.repositoriesStore.updateRepositoryPath(
+        repository,
+        rt.topLevelWorkingDirectory,
+        rt.gitDir
+      )
+    } else if (rt.kind === 'unsafe') {
+      await this.repositoriesStore.updateRepositoryPath(
+        repository,
+        path,
+        undefined,
+        true
+      )
+    } else {
+      this.emitError(new Error(this.getInvalidRepoPathsMessage([path])))
+    }
   }
 
   public async _removeRepository(
