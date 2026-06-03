@@ -198,6 +198,13 @@ export class CopilotConflictsLoadingDialog extends React.Component<
   private timer: ReturnType<typeof setInterval> | null = null
   private themeFallbackTimer: ReturnType<typeof setTimeout> | null = null
   private logRef = React.createRef<HTMLDivElement>()
+  /**
+   * Wall-clock timestamp (ms) captured when the dialog mounts. Elapsed time
+   * is derived from this on every tick rather than counting ticks, so the
+   * message rotation stays accurate even when the interval is throttled
+   * (e.g. while the app is backgrounded).
+   */
+  private startTimeMs = 0
 
   public constructor(props: ICopilotConflictsLoadingDialogProps) {
     super(props)
@@ -216,6 +223,7 @@ export class CopilotConflictsLoadingDialog extends React.Component<
   }
 
   public componentDidMount() {
+    this.startTimeMs = Date.now()
     this.timer = setInterval(this.tick, 1000)
     // Safety net: if the model never streams reasoning we'd be stuck on
     // 'gathering' indefinitely. After a generous window, advance to
@@ -235,7 +243,10 @@ export class CopilotConflictsLoadingDialog extends React.Component<
     }
   }
 
-  public componentDidUpdate(prevProps: ICopilotConflictsLoadingDialogProps) {
+  public componentDidUpdate(
+    prevProps: ICopilotConflictsLoadingDialogProps,
+    prevState: ICopilotConflictsLoadingDialogState
+  ) {
     const prevSnippet = prevProps.progress?.reasoningSnippet
     const currentSnippet = this.props.progress?.reasoningSnippet
 
@@ -264,7 +275,12 @@ export class CopilotConflictsLoadingDialog extends React.Component<
       this.advanceToAnalyzing()
     }
 
-    this.trimOverflowingMessages()
+    // Only re-measure the (potentially expensive) DOM layout when the
+    // rendered messages actually changed — other state updates (e.g.
+    // incoming reasoning snippets) don't affect the log's height.
+    if (prevState.displayedMessages !== this.state.displayedMessages) {
+      this.trimOverflowingMessages()
+    }
   }
 
   /**
@@ -315,7 +331,10 @@ export class CopilotConflictsLoadingDialog extends React.Component<
 
   private tick = () => {
     this.setState(prev => {
-      const nextElapsed = prev.elapsedSeconds + 1
+      // Derive elapsed time from the wall clock rather than incrementing a
+      // counter, so a throttled/coalesced interval (backgrounded app)
+      // doesn't cause the timer to drift behind real time.
+      const nextElapsed = Math.round((Date.now() - this.startTimeMs) / 1000)
       const dwelt = nextElapsed - prev.messageShownAt
 
       if (dwelt < prev.currentDwell) {
@@ -361,6 +380,10 @@ export class CopilotConflictsLoadingDialog extends React.Component<
 
   private onCancel = () => {
     const { dispatcher, repository, conflictState } = this.props
+
+    // Actually tear down the in-flight Copilot turn so it stops consuming work
+    // in the background, then return the user to the manual conflicts list.
+    dispatcher.abortCopilotConflictResolution(repository)
 
     dispatcher.setMultiCommitOperationStepWithCopilotResolution(
       repository,
