@@ -218,17 +218,6 @@ dialog#copilot-conflicts-dialog {
       border-radius: var(--border-radius);
       background: var(--box-alt-background-color);
     }
-
-    // Inline source citations (#1234 / abc1234) that we linkify after
-    // sanitizing. Styled like the rest of Desktop's links.
-    .copilot-conflicts-summary-inline-link {
-      color: var(--link-button-color);
-      cursor: pointer;
-
-      &:hover {
-        text-decoration: underline;
-      }
-    }
   }
 
   .copilot-conflicts-summary-references {

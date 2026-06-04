@@ -2,6 +2,7 @@ import * as React from 'react'
 import { join } from 'path'
 import { Dialog, DialogContent, DialogFooter } from '../../dialog'
 import { Dispatcher } from '../../dispatcher'
+import { Emoji } from '../../../lib/emoji'
 import { Repository } from '../../../models/repository'
 import { MultiCommitOperationStepKind } from '../../../models/multi-commit-operation'
 import { MultiCommitOperationConflictState } from '../../../lib/app-state'
@@ -52,6 +53,7 @@ interface ICopilotConflictsDialogProps {
   readonly onContinueAfterConflicts: () => Promise<void>
   readonly onAbort: () => Promise<void>
   readonly onDismissed: () => void
+  readonly emoji: Map<string, Emoji>
 }
 
 interface ICopilotConflictsDialogState {
@@ -334,7 +336,8 @@ export class CopilotConflictsDialog extends React.Component<
   }
 
   private renderResolutionSummary(): JSX.Element | null {
-    const { copilotResolutionSummary, operationKind } = this.props
+    const { copilotResolutionSummary, operationKind, repository, emoji } =
+      this.props
     if (copilotResolutionSummary === null) {
       return null
     }
@@ -342,6 +345,8 @@ export class CopilotConflictsDialog extends React.Component<
       <CopilotConflictsResolutionSummary
         summary={copilotResolutionSummary}
         operationKind={operationKind}
+        emoji={emoji}
+        gitHubRepository={repository.gitHubRepository}
       />
     )
   }
