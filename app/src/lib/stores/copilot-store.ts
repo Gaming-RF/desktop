@@ -19,6 +19,7 @@ import { getCopilotPaymentRequiredErrorFromSessionError } from '../copilot-error
 import {
   CopilotValidationError,
   ConflictResolutionSystemPrompt,
+  ICopilotConflictReference,
   ICopilotConflictResolutionResponse,
   IConflictResolutionProgress,
   IFileResolution,
@@ -965,7 +966,9 @@ export class CopilotStore extends BaseStore {
         )
         onProgress?.({ filesResolved: filesTotal, filesTotal })
         return {
-          resolutions: chunkResult,
+          resolutions: chunkResult.resolutions,
+          summary: chunkResult.summary,
+          references: chunkResult.references,
         }
       }
 
@@ -974,6 +977,8 @@ export class CopilotStore extends BaseStore {
       const chunkSize = filesTotal > 100 ? 15 : 20
       const chunks = createDependencyAwareChunks(resolvableFiles, chunkSize)
       const allResolutions: Array<IFileResolution> = []
+      let firstSummary: string | null = null
+      let firstReferences: ReadonlyArray<ICopilotConflictReference> = []
       let filesResolved = 0
 
       // Process chunks with bounded concurrency
@@ -1013,8 +1018,17 @@ export class CopilotStore extends BaseStore {
         let firstError: Error | undefined
         for (const result of batchSettled) {
           if (result.status === 'fulfilled') {
-            allResolutions.push(...result.value)
-            filesResolved += result.value.length
+            allResolutions.push(...result.value.resolutions)
+            filesResolved += result.value.resolutions.length
+            if (firstSummary === null && result.value.summary !== null) {
+              firstSummary = result.value.summary
+            }
+            if (
+              firstReferences.length === 0 &&
+              result.value.references.length > 0
+            ) {
+              firstReferences = result.value.references
+            }
             onProgress?.({
               filesResolved,
               filesTotal,
@@ -1035,6 +1049,8 @@ export class CopilotStore extends BaseStore {
       onProgress?.({ filesResolved: filesTotal, filesTotal })
       return {
         resolutions: allResolutions,
+        summary: firstSummary,
+        references: firstReferences,
       }
     } finally {
       await this.stopClient(client)
@@ -1049,7 +1065,9 @@ export class CopilotStore extends BaseStore {
    * auth, session creation) fail fast, and user-initiated aborts are never
    * retried.
    *
-   * Returns the validated per-file resolutions.
+   * Returns the validated per-file resolutions along with the optional
+   * markdown summary string (null if the model omitted it) and any
+   * structured references the model cited.
    */
   private async resolveChunk(
     client: CopilotClient,
@@ -1058,7 +1076,11 @@ export class CopilotStore extends BaseStore {
     modelConfig: IResolvedConflictModelConfig,
     onReasoningSnippet?: (snippet: string) => void,
     signal?: AbortSignal
-  ): Promise<ReadonlyArray<IFileResolution>> {
+  ): Promise<{
+    readonly resolutions: ReadonlyArray<IFileResolution>
+    readonly summary: string | null
+    readonly references: ReadonlyArray<ICopilotConflictReference>
+  }> {
     const expectedPaths = new Set(expectedFiles.map(f => f.path))
     let lastError: Error | undefined
 
@@ -1116,7 +1138,11 @@ export class CopilotStore extends BaseStore {
         validateResolutionPaths(parsed.resolutions, expectedPaths)
         parseTimer.done()
 
-        return parsed.resolutions
+        return {
+          resolutions: parsed.resolutions,
+          summary: parsed.summary,
+          references: parsed.references,
+        }
       } catch (e) {
         lastError = e instanceof Error ? e : new Error(String(e))
 
