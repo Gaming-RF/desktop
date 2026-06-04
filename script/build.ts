@@ -401,6 +401,13 @@ function copyDependencies() {
       path.join(copilotDestination, 'clipboard', 'node_modules', '@teddyzhu'),
       path.join(
         copilotDestination,
+        'clipboard',
+        'node_modules',
+        '@teddyzhu',
+        'clipboard'
+      ),
+      path.join(
+        copilotDestination,
         'foundry-local-sdk',
         'node_modules',
         'foundry-local-sdk',
