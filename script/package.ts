@@ -79,12 +79,12 @@ function packageOSX() {
   })
 }
 
-function packageLinux() {
+async function packageLinux() {
   const dest = getLinuxTarPath()
   rmSync(dest, { recursive: true, force: true })
 
-  console.log('Packaging for Linux…')
-  return new Promise<void>((resolve, reject) => {
+  console.log('Packaging for Linux (.tar.gz)…')
+  await new Promise<void>((resolve, reject) => {
     const output = createWriteStream(dest)
     const archive = archiver('tar', { gzip: true })
     
@@ -95,6 +95,30 @@ function packageLinux() {
     archive.directory(distPath, productName)
     archive.finalize()
   })
+
+  console.log('Packaging for Linux (.deb)…')
+  try {
+    const installer = require('electron-installer-debian')
+    const options = {
+      src: distPath,
+      dest: outputDir,
+      arch: getDistArchitecture() === 'x64' ? 'amd64' : getDistArchitecture(),
+      icon: path.join(getIconDirectory(), 'icon-logo.png'),
+      bin: 'desktop',
+      name: 'github-desktop',
+      productName: productName,
+      genericName: 'Git Client',
+      description: 'GitHub Desktop client fork',
+      section: 'devel',
+      priority: 'optional',
+      categories: ['Development'],
+      mimeType: ['x-scheme-handler/x-github-client', 'x-scheme-handler/x-github-desktop'],
+    }
+    await installer(options)
+    console.log('.deb package created successfully in ' + outputDir)
+  } catch (err) {
+    console.error('Failed to create .deb package:', err)
+  }
 }
 
 function packageWindows() {
