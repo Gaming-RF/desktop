@@ -442,6 +442,45 @@ export class AppWindow {
   }
 
   public async checkForUpdates(url: string) {
+    if (process.platform === 'linux') {
+      try {
+        ipcWebContents.send(this.window.webContents, 'auto-updater-checking-for-update')
+        const response = await fetch('https://api.github.com/repos/Gaming-RF/desktop/releases/latest', {
+          headers: { 'User-Agent': 'GitHub-Desktop-Linux-Update-Checker' }
+        })
+        if (!response.ok) {
+          throw new Error(`Failed to fetch updates: ${response.statusText}`)
+        }
+        const release = await response.json()
+        const latestVersion = release.tag_name.replace(/^v/, '')
+        const currentVersion = app.getVersion()
+
+        const semver = require('semver')
+        if (semver.gt(latestVersion, currentVersion)) {
+          ipcWebContents.send(this.window.webContents, 'auto-updater-update-available')
+          
+          const { response: buttonIndex } = await dialog.showMessageBox(this.window, {
+            type: 'info',
+            buttons: ['Download', 'Later'],
+            defaultId: 0,
+            cancelId: 1,
+            title: 'Update Available',
+            message: `A new version of GitHub Desktop (${latestVersion}) is available.`,
+            detail: 'Would you like to open the releases page to download the latest version?'
+          })
+          
+          if (buttonIndex === 0) {
+            shell.openExternal('https://github.com/Gaming-RF/desktop/releases/latest')
+          }
+        } else {
+          ipcWebContents.send(this.window.webContents, 'auto-updater-update-not-available')
+        }
+      } catch (err) {
+        ipcWebContents.send(this.window.webContents, 'auto-updater-error', err as Error)
+      }
+      return undefined
+    }
+
     try {
       autoUpdater.setFeedURL({ url: await trySetUpdaterGuid(url) })
       autoUpdater.checkForUpdates()
